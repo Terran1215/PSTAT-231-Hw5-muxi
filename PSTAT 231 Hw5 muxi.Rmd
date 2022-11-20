@@ -1,0 +1,161 @@
+---
+title: "PSTAT231 Hw5 muxi"
+author: "muxi"
+date: "2022-11-20"
+output: html_document
+---
+
+## Exercise 1
+
+```{r echo=TRUE, warning=FALSE}
+library(tidymodels)
+library(ISLR)
+library(ISLR2)
+library(tidyverse)
+tidymodels_prefer()
+library(janitor)
+library(pROC)
+
+data=read.csv("Pokemon.csv")%>%clean_names()
+```
+
+Resulting names of the dataframe are unique and consist only of the _ character, numbers, and letters. Returns the data.frame with clean names.
+
+## Exercise 2
+
+```{r echo=TRUE}
+data %>% 
+  ggplot(aes(x = type_1)) +
+  geom_bar()
+```
+
+We could see from the bar chart that there are total 19 classes of the outcome. And there one Pokémon type-- Flying with very few Pokémon.
+
+```{r echo=TRUE}
+data=data %>% filter(type_1=="Bug"|type_1=="Fire"|type_1=="Grass"|type_1=="Normal"|type_1=="Water"|type_1=="Psychic")
+data[,3]=as.factor(data[,3])
+data[,13]=as.factor(data[,13])
+class(data[,3])
+class(data[,13])
+```
+
+## Exercise 3
+
+
+```{r echo=TRUE}
+set.seed(1215)
+data_split=initial_split(data, strata = type_1, prop = 0.7)
+data_train=training(data_split)
+data_test=testing(data_split)
+dim(data_train)
+dim(data_test)
+data_folds=vfold_cv(data_train, v = 5,strata = type_1)
+data_folds
+```
+
+Using strata, we could set a variable in data used to conduct stratified sampling. Using  k-Fold Cross-Validation could help us improve the accuracy for models with hyperparameter tuning.
+
+## Exercise 4
+
+```{r echo=TRUE}
+ENT_recipe=recipe(type_1 ~ legendary+generation+sp_atk+attack+speed+defense+hp+sp_def, data = data_train) %>% step_dummy(legendary,generation)%>%step_center(all_predictors())%>%step_scale(all_predictors())
+```
+
+## Exercise 5
+
+```{r echo=TRUE}
+Elastic_Net_Tuning=multinom_reg(penalty = tune(), mixture = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+ENT_workflow=workflow() %>% 
+  add_recipe(ENT_recipe) %>% 
+  add_model(Elastic_Net_Tuning)
+
+para_grid=grid_regular(penalty(range = c(-5, 5)),mixture(range = c(0, 1)), levels = c(mixture = 10, penalty = 10))
+
+```
+
+There are totally 100 models.
+
+## Exercise 6
+
+
+```{r echo=TRUE, warning=FALSE}
+ENT_res=tune_grid(
+  ENT_workflow,
+  resamples = data_folds, 
+  grid = para_grid
+)
+```
+
+
+```{r echo=TRUE}
+autoplot(ENT_res)
+```
+
+It is clear that when the amount of regularization are extremly large, both accuracy and roc auc shows a poor curve. For accuracy plot, the curves first increase with the amount of regularization to the highest point and then keep decreasing. For roc auc plot, the curves keep stable for a period and then keep decreasing.
+
+For accuracy plot, the curves are not monotone. We could not conclude that  larger or smaller values of penalty and mixture produce better accuracy.
+
+For roc auc plot, smaller values of penalty and mixture produce better ROC AUC.
+
+## Exercise 7
+
+```{r echo=TRUE}
+best_para=select_best(ENT_res, metric = "roc_auc")
+best_para
+```
+
+```{r echo=TRUE}
+ENT_final=finalize_workflow(ENT_workflow, best_para)
+ENT_final_fit=fit(ENT_final, data = data_train)
+ENT_acc=augment(ENT_final_fit, new_data = data_test) %>%accuracy(truth = type_1, estimate = .pred_class)
+ENT_acc
+```
+
+## Exercise 8
+
+```{r echo=TRUE}
+k1=predict(ENT_final_fit, data_test, type="prob")
+k2=predict(ENT_final_fit, data_test, type="class")
+k3=cbind(k1,k2)
+Pre=cbind(data_test[,3],k3)
+Pre %>%roc_auc(data_test[,3],  .pred_Bug: .pred_Water)
+```
+
+```{r echo=TRUE}
+augment(ENT_final_fit, new_data = data_test) %>%
+  conf_mat(truth = type_1, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+Pre %>%
+  roc_curve(data_test[,3],  .pred_Bug: .pred_Water) %>%
+  autoplot()
+```
+
+From the plots, we could see that the predicting accuracy is not the same for the six kind of Pokemon. Some perform good and some perform bad. The model is best at predicting the normal type Pokemon  and worst at the Fire type Pokemon. In my opinion, the significant characteristic of the Fire type Pokemon may not be collected. Thus, we could not catch the key features of them.
+
+## Exercise 9
+
+```{r echo=TRUE}
+X=c(numeric(337)+1,numeric(464))
+FG=numeric(1000)
+i=1
+while(i<1001){
+s=sample(X,100, replace = TRUE)
+FG[i]=mean(s)
+i=i+1
+}
+fg=as.data.frame(FG)
+fg %>% 
+  ggplot(aes(x = FG)) +
+  geom_histogram() +
+  theme_bw()
+```
+
+
+```{r echo=TRUE}
+quantile(FG, probs = c(0.005, 0.995))
+print(quantile(FG, probs = c (0.995)))
+```
+
